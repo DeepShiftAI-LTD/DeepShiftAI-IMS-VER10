@@ -1,13 +1,37 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { TaskPriority } from "../types";
 
-// Initialize the AI client with the API key from environment variables
-// Note: In a real production app, you might proxy this through a backend to hide the key,
-// but for this client-side demo, we assume process.env.API_KEY is available.
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Initialize the AI client lazily to prevent top-level crashes
+let aiClient: GoogleGenAI | null = null;
+
+const getAiClient = (): GoogleGenAI | null => {
+    if (aiClient) return aiClient;
+    
+    // In Vite, process.env.API_KEY is replaced by the string literal from vite.config.ts.
+    // We rely on the global 'process' polyfill in index.html to prevent ReferenceErrors if checked elsewhere,
+    // but here we just need the key.
+    const apiKey = process.env.API_KEY || '';
+    
+    if (!apiKey) {
+        console.warn("Gemini API Key is missing. AI features will be disabled.");
+        return null;
+    }
+    
+    try {
+        aiClient = new GoogleGenAI({ apiKey });
+        return aiClient;
+    } catch (error) {
+        console.error("Failed to initialize Gemini Client:", error);
+        return null;
+    }
+};
 
 export const generateTaskDescription = async (title: string): Promise<{ description: string, priority: TaskPriority }> => {
+  const ai = getAiClient();
+  if (!ai) {
+      return { description: "AI features unavailable (API Key missing).", priority: TaskPriority.MEDIUM };
+  }
+
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
@@ -44,6 +68,9 @@ export const generateTaskDescription = async (title: string): Promise<{ descript
 };
 
 export const improveLogEntry = async (entry: string): Promise<string> => {
+  const ai = getAiClient();
+  if (!ai) return entry;
+
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
@@ -57,6 +84,9 @@ export const improveLogEntry = async (entry: string): Promise<string> => {
 };
 
 export const suggestSkillCategory = async (skillName: string): Promise<string> => {
+  const ai = getAiClient();
+  if (!ai) return "Technical";
+
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',

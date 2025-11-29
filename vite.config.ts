@@ -13,10 +13,10 @@ export default defineConfig(({ mode }) => {
       sourcemap: true
     },
     define: {
-      // Prevents "process is not defined" error in browser and injects the API Key
-      'process.env.API_KEY': JSON.stringify(env.API_KEY),
-      // Fallback to prevent crash if other process.env props are accessed safely
-      'process.env': {}
+      // Safely inject the API key. 
+      // Note: We do not define 'process.env': {} here as it breaks other libraries expecting process.env properties.
+      // The process polyfill in index.html handles the global object.
+      'process.env.API_KEY': JSON.stringify(env.API_KEY || '')
     }
   };
 });
