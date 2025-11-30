@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from './lib/supabaseClient';
 import { APP_NAME, MOCK_SKILLS, MOCK_BADGES } from './constants';
@@ -639,60 +637,120 @@ function App() {
       }
       
       setLoginError('');
+      console.log("Starting registration for:", userData.email);
       
-      const { data, error: authError } = await supabase.auth.signUp({
-          email: userData.email,
-          password: password,
-      });
+      let targetUserId = '';
+      let shouldCreateProfile = false;
 
-      if (authError) {
-          setLoginError(authError.message);
-          return;
-      }
+      try {
+        const { data, error: authError } = await supabase.auth.signUp({
+            email: userData.email,
+            password: password,
+            options: {
+                data: {
+                    full_name: userData.name,
+                    role: 'STUDENT'
+                }
+            }
+        });
 
-      if (data.user) {
-          const dbUser = {
-              id: data.user.id,
-              email: userData.email,
-              name: userData.name,
-              role: 'STUDENT',
-              password: 'managed_by_supabase_auth', 
-              avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(userData.name)}&background=random`,
-              phone: userData.phone,
-              institution: userData.institution,
-              department: userData.department,
-              bio: userData.bio,
-              hobbies: userData.hobbies || [],
-              profile_skills: userData.profileSkills || [],
-              total_hours_required: 120,
-              achievements: [],
-              future_goals: [],
-              institute_supervisor_name: userData.instituteSupervisorName,
-              institute_supervisor_phone: userData.instituteSupervisorPhone,
-              next_of_kin_name: userData.nextOfKinName,
-              next_of_kin_relationship: userData.nextOfKinRelationship,
-              next_of_kin_phone: userData.nextOfKinPhone
-          };
+        if (authError) {
+            // Check if user already exists
+            if (authError.message.toLowerCase().includes("already registered") || authError.status === 400 || authError.status === 422) {
+                 console.log("User already exists. Attempting auto-login to verify profile status...");
+                 const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
+                     email: userData.email,
+                     password: password
+                 });
 
-          const { error: dbError } = await supabase.from('users').insert(dbUser);
+                 if (loginError) {
+                     setLoginError("User already registered. Please log in.");
+                     return;
+                 }
+                 
+                 if (loginData.user) {
+                     targetUserId = loginData.user.id;
+                     // Check if profile exists
+                     const { data: existingProfile } = await supabase.from('users').select('id').eq('id', targetUserId).maybeSingle();
+                     if (existingProfile) {
+                         // User is fine, just process login
+                         const { data: profile } = await supabase.from('users').select('*').eq('id', targetUserId).single();
+                         if (profile) {
+                            const user = mapUser(profile);
+                            setCurrentUser(user);
+                            setIsAuthenticated(true);
+                            saveToLocal('currentUser', user);
+                            await fetchAllData();
+                         }
+                         return; // Done
+                     } else {
+                         // Auth exists, Login worked, but Profile missing. Create it.
+                         shouldCreateProfile = true;
+                     }
+                 }
+            } else {
+                console.error("Supabase Auth Error:", authError);
+                setLoginError(authError.message);
+                return;
+            }
+        } else if (data.user) {
+            targetUserId = data.user.id;
+            shouldCreateProfile = true;
+        }
 
-          if (dbError) {
-               // Handle unique violation or other errors
-               setLoginError("Account created but profile setup failed: " + dbError.message);
-          } else {
-              if (data.session) {
-                  const { data: profile } = await supabase.from('users').select('*').eq('id', data.user.id).single();
-                  if (profile) {
-                      const user = mapUser(profile);
-                      setCurrentUser(user);
-                      setIsAuthenticated(true);
-                      saveToLocal('currentUser', user);
-                      await fetchAllData();
-                  }
-              } else {
-                  alert('Registration successful! You can now log in.');
-              }
-          }
+        if (shouldCreateProfile && targetUserId) {
+            console.log("Creating profile for user:", targetUserId);
+            // Use safe defaults for optional fields to avoid issues with missing columns or undefined values
+            const dbUser = {
+                id: targetUserId,
+                email: userData.email,
+                password: password, // ADDED: Fix for NOT NULL constraint on 'password' column
+                name: userData.name,
+                role: 'STUDENT',
+                avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(userData.name)}&background=random`,
+                phone: userData.phone || null,
+                institution: userData.institution || null,
+                department: userData.department || null,
+                bio: userData.bio || null,
+                total_hours_required: 120,
+                // The following fields are commented out because they are missing from the Supabase schema
+                // If you add these columns to your Supabase 'users' table, you can uncomment them.
+                // hobbies: userData.hobbies || [],
+                // profile_skills: userData.profileSkills || [],
+                // achievements: [],
+                // future_goals: [],
+                // institute_supervisor_name: userData.instituteSupervisorName || null,
+                // institute_supervisor_phone: userData.instituteSupervisorPhone || null,
+                // next_of_kin_name: userData.nextOfKinName || null,
+                // next_of_kin_relationship: userData.nextOfKinRelationship || null,
+                // next_of_kin_phone: userData.nextOfKinPhone || null
+            };
+
+            // Use upsert instead of insert to handle race conditions or partial failures safely
+            const { error: dbError } = await supabase.from('users').upsert(dbUser);
+
+            if (dbError) {
+                // IMPORTANT: Stringify the error object so the user sees the actual code/details, not [object Object]
+                console.error("Profile Insert Error:", dbError);
+                setLoginError("Profile Setup Failed: " + (dbError.message || JSON.stringify(dbError)));
+            } else {
+                // Success - fetch profile and set session
+                 const { data: profile } = await supabase.from('users').select('*').eq('id', targetUserId).single();
+                 if (profile) {
+                    const user = mapUser(profile);
+                    setCurrentUser(user);
+                    setIsAuthenticated(true);
+                    saveToLocal('currentUser', user);
+                    await fetchAllData();
+                 } else {
+                    alert('Registration successful! Please login.');
+                 }
+            }
+        }
+      } catch (err: any) {
+          console.error("Unexpected Register Error:", err);
+          // Ensure err object is stringified if message is missing
+          setLoginError("Unexpected error: " + (err.message || JSON.stringify(err)));
       }
   };
 
@@ -939,10 +997,11 @@ function App() {
               institution: updatedUser.institution,
               department: updatedUser.department,
               bio: updatedUser.bio,
-              hobbies: updatedUser.hobbies,
-              profile_skills: updatedUser.profileSkills,
-              achievements: updatedUser.achievements,
-              future_goals: updatedUser.futureGoals,
+              // Removed potential problematic fields for safety if schema is basic
+              // hobbies: updatedUser.hobbies, 
+              // profile_skills: updatedUser.profileSkills,
+              // achievements: updatedUser.achievements,
+              // future_goals: updatedUser.futureGoals,
               role: updatedUser.role
           }).eq('id', updatedUser.id);
           if (error) console.error("Update profile failed", error);
@@ -959,6 +1018,7 @@ function App() {
       const payload = { 
           id: tempId,
           email: user.email,
+          password: user.password || '123456', // ADDED: Fix for NOT NULL constraint
           name: user.name,
           role: user.role,
           avatar: user.avatar,
@@ -974,7 +1034,6 @@ function App() {
           internship_start_date: user.internshipStartDate || null,
           internship_end_date: user.internshipEndDate || null,
           assigned_supervisor_id: user.assignedSupervisorId || null,
-          password: user.password || 'placeholder_password' 
       };
 
       const { data, error } = await supabase.from('users').insert(payload).select().single();

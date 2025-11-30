@@ -90,9 +90,11 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, onResetPassword
             nextOfKinRelationship: regForm.nextOfKinRelationship,
             nextOfKinPhone: regForm.nextOfKinPhone
         }, regForm.password);
-    } catch (error) {
+    } catch (error: any) {
         console.error("Registration error:", error);
-        if (setLoginError) setLoginError("An unexpected error occurred during registration.");
+        if (setLoginError) setLoginError(error.message || "An unexpected error occurred during registration.");
+        // Fallback alert if user missed the banner
+        alert("Registration Failed: " + (error.message || "Please check your input and try again."));
     } finally {
         setLoading(false);
     }
@@ -349,13 +351,13 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, onResetPassword
                     )}
 
                     {mode === 'REGISTER' && (
-                        <form onSubmit={handleRegisterSubmit} className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300 max-h-[70vh] overflow-y-auto pr-2 custom-scrollbar">
+                        <form onSubmit={handleRegisterSubmit} className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300 max-h-[70vh] overflow-y-auto pr-2 custom-scrollbar relative">
                             
-                            {/* Error Display for Registration */}
+                            {/* Error Display for Registration - Prominently placed at top */}
                             {loginError && (
-                                <div className="bg-rose-50 text-rose-600 text-sm p-3 rounded-lg border border-rose-100 flex items-center gap-2 sticky top-0 z-10 shadow-sm backdrop-blur-md bg-opacity-90">
-                                    <AlertCircle size={18} className="flex-shrink-0" />
-                                    <span>{loginError}</span>
+                                <div className="bg-rose-50 text-rose-600 text-sm p-4 rounded-lg border border-rose-200 flex items-start gap-3 mb-4 shadow-sm animate-in fade-in slide-in-from-top-2">
+                                    <AlertCircle size={20} className="flex-shrink-0 mt-0.5" />
+                                    <div className="font-medium">{loginError}</div>
                                 </div>
                             )}
 
