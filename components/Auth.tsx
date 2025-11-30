@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { User, Role } from '../types';
 import { Button, Card } from './UI';
-import { Mail, Lock, User as UserIcon, Briefcase, Phone, School, BookOpen, ArrowRight, UserPlus, LogIn, CheckCircle, KeyRound, ArrowLeft, Loader2 } from 'lucide-react';
+import { Mail, Lock, User as UserIcon, Briefcase, Phone, School, BookOpen, ArrowRight, UserPlus, LogIn, CheckCircle, KeyRound, ArrowLeft, Loader2, AlertCircle } from 'lucide-react';
 import { APP_NAME } from '../constants';
 
 interface AuthProps {
@@ -54,8 +54,14 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, onResetPassword
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    await onLogin(loginEmail, loginPassword);
-    setLoading(false);
+    try {
+        await onLogin(loginEmail, loginPassword);
+    } catch (error) {
+        console.error("Login error:", error);
+        // Error is usually handled by parent setting loginError
+    } finally {
+        setLoading(false);
+    }
   };
 
   const handleRegisterSubmit = async (e: React.FormEvent) => {
@@ -66,24 +72,30 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, onResetPassword
     }
     
     setLoading(true);
-    await onRegister({
-        name: regForm.name,
-        email: regForm.email,
-        phone: regForm.phone,
-        institution: regForm.institution,
-        department: regForm.department,
-        bio: regForm.bio,
-        profileSkills: regForm.skills.split(',').map(s => s.trim()).filter(s => s),
-        hobbies: regForm.hobbies.split(',').map(s => s.trim()).filter(s => s),
-        achievements: [],
-        futureGoals: [],
-        instituteSupervisorName: regForm.instituteSupervisorName,
-        instituteSupervisorPhone: regForm.instituteSupervisorPhone,
-        nextOfKinName: regForm.nextOfKinName,
-        nextOfKinRelationship: regForm.nextOfKinRelationship,
-        nextOfKinPhone: regForm.nextOfKinPhone
-    }, regForm.password);
-    setLoading(false);
+    try {
+        await onRegister({
+            name: regForm.name,
+            email: regForm.email,
+            phone: regForm.phone,
+            institution: regForm.institution,
+            department: regForm.department,
+            bio: regForm.bio,
+            profileSkills: regForm.skills.split(',').map(s => s.trim()).filter(s => s),
+            hobbies: regForm.hobbies.split(',').map(s => s.trim()).filter(s => s),
+            achievements: [],
+            futureGoals: [],
+            instituteSupervisorName: regForm.instituteSupervisorName,
+            instituteSupervisorPhone: regForm.instituteSupervisorPhone,
+            nextOfKinName: regForm.nextOfKinName,
+            nextOfKinRelationship: regForm.nextOfKinRelationship,
+            nextOfKinPhone: regForm.nextOfKinPhone
+        }, regForm.password);
+    } catch (error) {
+        console.error("Registration error:", error);
+        if (setLoginError) setLoginError("An unexpected error occurred during registration.");
+    } finally {
+        setLoading(false);
+    }
   };
 
   const handleForgotPasswordSubmit = async (e: React.FormEvent) => {
@@ -91,37 +103,37 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, onResetPassword
       
       setIsSending(true);
       // 1. Check if email exists (Async)
-      const user = await getUserByEmail(resetEmail);
-      
-      if (!user) {
-          setResetMessage({ type: 'error', text: 'Email address not found.' });
-          setIsSending(false);
-          return;
-      }
-      
-      const mockCode = Math.floor(1000 + Math.random() * 9000).toString();
-      setGeneratedCode(mockCode);
-      
       try {
-          // 2. Send to Webhook
-          await fetch('https://automate.deepshiftai.com/webhook/password-rest', {
-              method: 'POST',
-              headers: {
-                  'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                  email: resetEmail,
-                  name: user.name,
-                  resetCode: mockCode
-              })
-          });
+        const user = await getUserByEmail(resetEmail);
+        
+        if (!user) {
+            setResetMessage({ type: 'error', text: 'Email address not found.' });
+            setIsSending(false);
+            return;
+        }
+        
+        const mockCode = Math.floor(1000 + Math.random() * 9000).toString();
+        setGeneratedCode(mockCode);
+        
+        // 2. Send to Webhook
+        await fetch('https://automate.deepshiftai.com/webhook/password-rest', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                email: resetEmail,
+                name: user.name,
+                resetCode: mockCode
+            })
+        });
 
-          // 3. Success Message
-          setResetMessage({ type: 'success', text: `The reset code has been sent to ${resetEmail}` });
-          setMode('RESET_PASSWORD');
+        // 3. Success Message
+        setResetMessage({ type: 'success', text: `The reset code has been sent to ${resetEmail}` });
+        setMode('RESET_PASSWORD');
       } catch (error) {
-          console.error("Error sending reset code to webhook (continuing flow):", error);
-          // Fallback: Continue flow even if webhook fails
+          console.error("Error sending reset code (continuing flow):", error);
+          // Fallback: Continue flow even if webhook fails, effectively mocking it for user experience
           setResetMessage({ type: 'success', text: `The reset code has been sent to ${resetEmail}` });
           setMode('RESET_PASSWORD');
       } finally {
@@ -226,7 +238,8 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, onResetPassword
                         <form onSubmit={handleLoginSubmit} className="space-y-6">
                             {loginError && (
                                 <div className="bg-rose-50 text-rose-600 text-sm p-3 rounded-lg border border-rose-100 flex items-center gap-2">
-                                    <span className="font-bold">Error:</span> {loginError}
+                                    <AlertCircle size={18} />
+                                    <div><span className="font-bold">Error:</span> {loginError}</div>
                                 </div>
                             )}
                             <div>
@@ -337,6 +350,15 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, onResetPassword
 
                     {mode === 'REGISTER' && (
                         <form onSubmit={handleRegisterSubmit} className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300 max-h-[70vh] overflow-y-auto pr-2 custom-scrollbar">
+                            
+                            {/* Error Display for Registration */}
+                            {loginError && (
+                                <div className="bg-rose-50 text-rose-600 text-sm p-3 rounded-lg border border-rose-100 flex items-center gap-2 sticky top-0 z-10 shadow-sm backdrop-blur-md bg-opacity-90">
+                                    <AlertCircle size={18} className="flex-shrink-0" />
+                                    <span>{loginError}</span>
+                                </div>
+                            )}
+
                             <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wide border-b border-slate-100 pb-1 mb-3">Personal Information</h3>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
